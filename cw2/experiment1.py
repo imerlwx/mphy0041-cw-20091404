@@ -196,5 +196,3 @@ outputs2 = outputs2.detach().numpy()
 plt.imshow(images[3,0]+256*labels[3,0], cmap='gray')
 plt.imshow(images[3,0]+256*outputs1[3,0], cmap='gray')
 plt.imshow(images[3,0]+256*outputs2[3,0], cmap='gray')
-
-## results with the classfication model applied first
