@@ -88,23 +88,26 @@ class UNet(torch.nn.Module):
 
 ## loss function
 def loss_dice(y_pred, y_true, eps=1e-6):
-    numerator = torch.sum(y_true*y_pred, dim=(0,1,2)) * 2
-    denominator = torch.sum(y_true, dim=(0,1,2)) + torch.sum(y_pred, dim=(0,1,2)) + eps
+    numerator = torch.sum(y_true*y_pred, dim=(1,2,3)) * 2
+    denominator = torch.sum(y_true, dim=(1,2,3)) + torch.sum(y_pred, dim=(1,2,3)) + eps
     return torch.mean(1. - (numerator / denominator))
+
+# a data augmentation method
+transform = transforms.Compose([
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomVerticalFlip(p=0.5)
+    ])
 
 ## data loader
 class h5Dataset(torch.utils.data.Dataset):
-    def __init__(self, file_path, transform=None):
+    def __init__(self, file_path, transforms=None, is_train=True):
         self.h5_file = h5py.File(file_path, 'r')
         self.num_cases = len(set([k.split('_')[1] for k in self.h5_file.keys()]))  # number of cases
         self.num_frames = torch.zeros(num_cases, 1)
         for idx in range(self.num_cases):  # number of frames of each case
             self.num_frames[idx] = len([k for k in self.h5_file.keys() if k.split('_')[0]=='frame' if k.split('_')[1]=='%04d' % idx])  
 
-        self.transform = transforms.Compose([
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomVerticalFlip(p=0.5)
-            ])
+        self.transforms = transforms
 
     def __len__(self):
         return self.num_cases
@@ -112,22 +115,22 @@ class h5Dataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         
         idy = random.randint(0, self.num_frames[idx]-1)  # frames in each case have equal chance to be sampled
-        idz = torch.randint(0,2,())  # random sample one label from the available three labels
+        idz = torch.randint(0,3,())  # random sample one label from the available three labels
 
         image = torch.unsqueeze(torch.tensor(self.h5_file["/frame_%04d_%03d" % (idx, idy)][()].astype('float32')), dim=0)
-        label1 = torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, idz)][()].astype('int64'))  # one kind of label        
+        label1 = torch.unsqueeze(torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, idz)][()].astype('int64')), dim=0)  # one kind of label        
 
-        label20 = torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, 0)][()].astype('int64'))
-        label21 = torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, 1)][()].astype('int64'))
-        label22 = torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, 2)][()].astype('int64'))
+        label20 = torch.unsqueeze(torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, 0)][()].astype('int64')), dim=0)
+        label21 = torch.unsqueeze(torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, 1)][()].astype('int64')), dim=0)
+        label22 = torch.unsqueeze(torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, 2)][()].astype('int64')), dim=0)
         label2 = (label20 + label21 + label22) / 3
 
         label2 = (label2>=0.5) * 1  # another kind of label
 
-        if self.transform is not None:
-            image = self.transform(image)
-            label1 = self.transform(label1)
-            label2 = self.transform(label2)
+
+
+        if self.transforms is not None:
+            image, label1, label2 = self.transforms(image, label1, label2)
 
         return image, label1, label2
 
