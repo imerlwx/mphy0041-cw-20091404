@@ -1,6 +1,7 @@
 import os
 import h5py
 import torch
+import random
 import numpy as np
 import torchvision.transforms as transforms
 
@@ -103,36 +104,49 @@ class h5Dataset(torch.utils.data.Dataset):
     def __init__(self, file_path, transforms=None, is_train=True):
         self.h5_file = h5py.File(file_path, 'r')
         self.num_cases = len(set([k.split('_')[1] for k in self.h5_file.keys()]))  # number of cases
-        self.num_frames = torch.zeros(num_cases, 1)
+        self.num_frames = torch.zeros(self.num_cases, 1)
         for idx in range(self.num_cases):  # number of frames of each case
             self.num_frames[idx] = len([k for k in self.h5_file.keys() if k.split('_')[0]=='frame' if k.split('_')[1]=='%04d' % idx])  
 
+        self.is_train = is_train
         self.transforms = transforms
 
     def __len__(self):
-        return self.num_cases
+        return (160 if self.is_train else 40)
 
     def __getitem__(self, idx):
+
+        if self.is_train:
+            idy = random.randint(0, self.num_frames[idx]-1)  # frames in each case have equal chance to be sampled
+            idz = torch.randint(0,3,())  # random sample one label from the available three labels
+            image = torch.unsqueeze(torch.tensor(self.h5_file["/frame_%04d_%03d" % (idx, idy)][()].astype('float32')), dim=0)
+            label1 = torch.unsqueeze(torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, idz)][()].astype('int64')), dim=0)  # one kind of label        
+
+            label20 = torch.unsqueeze(torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, 0)][()].astype('int64')), dim=0)
+            label21 = torch.unsqueeze(torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, 1)][()].astype('int64')), dim=0)
+            label22 = torch.unsqueeze(torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, 2)][()].astype('int64')), dim=0)
+            label2 = (label20 + label21 + label22) / 3
+
+            label2 = (label2>=0.5) * 1  # another kind of label
+
+            if self.transforms is not None:
+                image, label1, label2 = self.transforms(image, label1, label2)
+
+            return image, label1, label2
         
-        idy = random.randint(0, self.num_frames[idx]-1)  # frames in each case have equal chance to be sampled
-        idz = torch.randint(0,3,())  # random sample one label from the available three labels
+        else:
+            idx = idx + 160
+            idy = random.randint(0, self.num_frames[idx]-1)  # frames in each case have equal chance to be sampled
+            idz = torch.randint(0,3,())  # random sample one label from the available three labels
+            image = torch.unsqueeze(torch.tensor(self.h5_file["/frame_%04d_%03d" % (idx, idy)][()].astype('float32')), dim=0)
 
-        image = torch.unsqueeze(torch.tensor(self.h5_file["/frame_%04d_%03d" % (idx, idy)][()].astype('float32')), dim=0)
-        label1 = torch.unsqueeze(torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, idz)][()].astype('int64')), dim=0)  # one kind of label        
+            label0 = torch.unsqueeze(torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, 0)][()].astype('int64')), dim=0)
+            label1 = torch.unsqueeze(torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, 1)][()].astype('int64')), dim=0)
+            label2 = torch.unsqueeze(torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, 2)][()].astype('int64')), dim=0)
+            label = (label0 + label1 + label2) / 3
+            label = (label>=0.5) * 1  # another kind of label
 
-        label20 = torch.unsqueeze(torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, 0)][()].astype('int64')), dim=0)
-        label21 = torch.unsqueeze(torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, 1)][()].astype('int64')), dim=0)
-        label22 = torch.unsqueeze(torch.tensor(self.h5_file["/label_%04d_%03d_%02d" % (idx, idy, 2)][()].astype('int64')), dim=0)
-        label2 = (label20 + label21 + label22) / 3
-
-        label2 = (label2>=0.5) * 1  # another kind of label
-
-
-
-        if self.transforms is not None:
-            image, label1, label2 = self.transforms(image, label1, label2)
-
-        return image, label1, label2
+            return image, label
 
 ## training
 model = UNet(1,1)  # input 1-channel 2d volume and output 1-channel segmentation (a probability map)
@@ -140,11 +154,19 @@ if use_cuda:
     model.cuda()
 
 # training data loader
-train_set = h5Dataset(file_path, transform=None)
+train_set = h5Dataset(file_path, transforms=None)
 train_loader = torch.utils.data.DataLoader(
     train_set,
     batch_size=4,
     shuffle=True,
+    num_workers=1)
+
+# holdout test data loader
+test_set = h5Dataset(file_path, transforms=None, is_train=False)
+test_loader = torch.utils.data.DataLoader(
+    test_set,
+    batch_size=4,
+    shuffle=True,  # change to False for predefined test data
     num_workers=1)
 
 # optimisation loop
@@ -163,6 +185,7 @@ while step < total_steps:
         optimizer.zero_grad()
         preds = model(images)
         loss = loss_dice(preds, label1s)
+        #loss = loss_dice(preds, label2s)
         loss.backward()
         optimizer.step()
 
@@ -173,6 +196,7 @@ while step < total_steps:
 print('Training done.')
 
 ## save trained model
-torch.save(model, 'task1_label1_saved_model_pt') 
+torch.save(model, 'task1_label1_saved_model_pt')  # label1 model
+# torch.save(model, 'task1_label2_saved_model_pt') # label2 model
 print('Model saved.')
 
