@@ -141,6 +141,7 @@ class h5Dataset(torch.utils.data.Dataset):
 
             return image, label
 
+# one kind of validation metric value
 def iou(target, pred, batchsize):
     preds = pred.detach().numpy()
     preds = np.array(preds)
@@ -159,7 +160,6 @@ def iou(target, pred, batchsize):
     iou_score = np.sum(iou_score)/n
 
     return iou_score
-
 
 ## training
 model = UNet(1,1)  # input 1-channel 2d volume and output 1-channel segmentation (a probability map)
@@ -221,4 +221,3 @@ print('Training done.')
 torch.save(model, 'task1_label1_saved_model_pt')  # label1 model
 # torch.save(model, 'task1_label2_saved_model_pt') # label2 model
 print('Model saved.')
-
