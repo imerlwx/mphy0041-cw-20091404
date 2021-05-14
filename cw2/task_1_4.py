@@ -19,23 +19,23 @@ class UNet(torch.nn.Module):
         # down sampling
         n_feat = init_n_feat
         self.encoder1 = UNet._block(ch_in, n_feat)
-        self.down_shortcut1 = UNet.down_shortcut(ch_in, n_feat)
+        self.down_shortcut1 = UNet.shortcut(ch_in, n_feat)
         self.pool1 = torch.nn.MaxPool2d(kernel_size=2, stride=2, padding=[1,0])
         self.encoder2 = UNet._block(n_feat, n_feat*2)
-        self.down_shortcut2 = UNet.down_shortcut(n_feat, n_feat*2)
+        self.down_shortcut2 = UNet.shortcut(n_feat, n_feat*2)
         self.pool2 = torch.nn.MaxPool2d(kernel_size=2, stride=2)
         
         # bottom layer
         self.bottleneck = UNet._block(n_feat*2, n_feat*4)
-        self.bottleneck_shortcut = UNet.down_shortcut(n_feat*2, n_feat*4)
+        self.bottleneck_shortcut = UNet.shortcut(n_feat*2, n_feat*4)
         
         # up sampling
         self.upconv2 = torch.nn.ConvTranspose2d(n_feat*4, n_feat*2, kernel_size=2, stride=2)
         self.decoder2 = UNet._block((n_feat*2)*2, n_feat*2)
-        self.up_shortcut2 = UNet.up_shortcut((n_feat*2)*2, n_feat*2)
+        self.up_shortcut2 = UNet.shortcut((n_feat*2)*2, n_feat*2)
         self.upconv1 = torch.nn.ConvTranspose2d(n_feat*2, n_feat, kernel_size=2, stride=2, padding=[1,0])
         self.decoder1 = UNet._block(n_feat*2, n_feat)
-        self.up_shortcut1 = UNet.up_shortcut(n_feat*2, n_feat)
+        self.up_shortcut1 = UNet.shortcut(n_feat*2, n_feat)
 
         self.conv = torch.nn.Conv2d(in_channels=n_feat, out_channels=ch_out, kernel_size=1)
         self.dropout = torch.nn.Dropout2d(p=0.2)  # one ensemble method
@@ -71,16 +71,9 @@ class UNet(torch.nn.Module):
             torch.nn.Conv2d(in_channels=n_feat, out_channels=n_feat, kernel_size=3, padding=1, bias=False),
             torch.nn.BatchNorm2d(num_features=n_feat)
             )
-
-    @staticmethod
-    def down_shortcut(ch_in, n_feat):
-        return torch.nn.Sequential(
-            torch.nn.Conv2d(in_channels=ch_in, out_channels=n_feat, kernel_size=1, bias=False),
-            torch.nn.BatchNorm2d(num_features=n_feat)
-            )
         
     @staticmethod
-    def up_shortcut(ch_in, n_feat):
+    def shortcut(ch_in, n_feat):
         return torch.nn.Sequential(
             torch.nn.Conv2d(in_channels=ch_in, out_channels=n_feat, kernel_size=1, bias=False),
             torch.nn.BatchNorm2d(num_features=n_feat)
@@ -153,13 +146,17 @@ def iou(target, pred, batchsize):
     preds = np.array(preds)
     targets = np.array(target)
     iou_score = np.zeros((batchsize,1))
+    n = batchsize
 
-    for i in range(40):
+    for i in range(batchsize):
+      if np.sum(targets[i,0])==0:
+        n-=1
+      else:
         intersection = np.logical_and(preds[i,0], targets[i,0])
         union = np.logical_or(preds[i,0], targets[i,0])
-        iou_score[i] = np.sum(intersection) / np.sum(union)
+        iou_score[i] = np.sum(intersection) / np.sum(union)    
 
-    iou_score = np.average(iou_score)
+    iou_score = np.sum(iou_score)/n
 
     return iou_score
 
