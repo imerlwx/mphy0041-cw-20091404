@@ -148,6 +148,22 @@ class h5Dataset(torch.utils.data.Dataset):
 
             return image, label
 
+def iou(target, pred, batchsize):
+    preds = pred.detach().numpy()
+    preds = np.array(preds)
+    targets = np.array(target)
+    iou_score = np.zeros((batchsize,1))
+
+    for i in range(40):
+        intersection = np.logical_and(preds[i,0], targets[i,0])
+        union = np.logical_or(preds[i,0], targets[i,0])
+        iou_score[i] = np.sum(intersection) / np.sum(union)
+
+    iou_score = np.average(iou_score)
+
+    return iou_score
+
+
 ## training
 model = UNet(1,1)  # input 1-channel 2d volume and output 1-channel segmentation (a probability map)
 if use_cuda:
@@ -171,7 +187,7 @@ test_loader = torch.utils.data.DataLoader(
 
 # optimisation loop
 freq_print = 100  # in steps
-#freq_test = 2000  # in steps
+freq_test = 100  # in steps
 total_steps = int(2e4)
 step = 0
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
@@ -192,6 +208,15 @@ while step < total_steps:
         # Compute and print loss
         if (step % freq_print) == 0:    # print every freq_print mini-batches
             print('Step %d loss: %.5f' % (step,loss.item()))
+
+        # --- testing during training (no validation labels available)
+        if (step % freq_test) == 0:  
+            images_test, labels_test = iter(test_loader).next()  # test one mini-batch
+            if use_cuda:
+                images_test = images_test.cuda()
+            preds_test = model(images_test)
+            iou_score = iou(labels_test, preds_test, 4)
+            print('Step %d iou: %.5f' % (iou_score))
 
 print('Training done.')
 
